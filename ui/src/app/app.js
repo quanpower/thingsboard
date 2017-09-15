@@ -15,6 +15,9 @@
  */
 
 import './ie.support';
+
+import 'event-source-polyfill';
+
 import angular from 'angular';
 import ngMaterial from 'angular-material';
 import ngMdIcons from 'angular-material-icons';
@@ -53,6 +56,7 @@ import thingsboardDialogs from './components/datakey-config-dialog.controller';
 import thingsboardMenu from './services/menu.service';
 import thingsboardRaf from './common/raf.provider';
 import thingsboardUtils from './common/utils.service';
+import thingsboardDashboardUtils from './common/dashboard-utils.service';
 import thingsboardTypes from './common/types.constant';
 import thingsboardApiTime from './api/time.service';
 import thingsboardKeyboardShortcut from './components/keyboard-shortcut.filter';
@@ -62,6 +66,11 @@ import thingsboardHome from './layout';
 import thingsboardApiLogin from './api/login.service';
 import thingsboardApiDevice from './api/device.service';
 import thingsboardApiUser from './api/user.service';
+import thingsboardApiEntityRelation from './api/entity-relation.service';
+import thingsboardApiAsset from './api/asset.service';
+import thingsboardApiAttribute from './api/attribute.service';
+import thingsboardApiEntity from './api/entity.service';
+import thingsboardApiAlarm from './api/alarm.service';
 
 import 'typeface-roboto';
 import 'font-awesome/css/font-awesome.min.css';
@@ -105,6 +114,7 @@ angular.module('thingsboard', [
     thingsboardMenu,
     thingsboardRaf,
     thingsboardUtils,
+    thingsboardDashboardUtils,
     thingsboardTypes,
     thingsboardApiTime,
     thingsboardKeyboardShortcut,
@@ -114,6 +124,11 @@ angular.module('thingsboard', [
     thingsboardApiLogin,
     thingsboardApiDevice,
     thingsboardApiUser,
+    thingsboardApiEntityRelation,
+    thingsboardApiAsset,
+    thingsboardApiAttribute,
+    thingsboardApiEntity,
+    thingsboardApiAlarm,
     uiRouter])
     .config(AppConfig)
     .factory('globalInterceptor', GlobalInterceptor)

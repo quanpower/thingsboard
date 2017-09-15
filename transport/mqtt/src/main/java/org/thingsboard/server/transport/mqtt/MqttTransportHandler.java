@@ -16,6 +16,7 @@
 package org.thingsboard.server.transport.mqtt;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.mqtt.*;
@@ -37,6 +38,7 @@ import org.thingsboard.server.common.transport.adaptor.AdaptorException;
 import org.thingsboard.server.common.transport.auth.DeviceAuthService;
 import org.thingsboard.server.dao.EncryptionUtil;
 import org.thingsboard.server.dao.device.DeviceService;
+import org.thingsboard.server.dao.relation.RelationService;
 import org.thingsboard.server.transport.mqtt.adaptors.MqttTransportAdaptor;
 import org.thingsboard.server.transport.mqtt.session.GatewaySessionCtx;
 import org.thingsboard.server.transport.mqtt.session.DeviceSessionCtx;
@@ -44,6 +46,8 @@ import org.thingsboard.server.transport.mqtt.util.SslUtil;
 
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.security.cert.X509Certificate;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -67,14 +71,17 @@ public class MqttTransportHandler extends ChannelInboundHandlerAdapter implement
     private final SessionMsgProcessor processor;
     private final DeviceService deviceService;
     private final DeviceAuthService authService;
+    private final RelationService relationService;
     private final SslHandler sslHandler;
     private volatile boolean connected;
+    private volatile InetSocketAddress address;
     private volatile GatewaySessionCtx gatewaySessionCtx;
 
-    public MqttTransportHandler(SessionMsgProcessor processor, DeviceService deviceService, DeviceAuthService authService,
+    public MqttTransportHandler(SessionMsgProcessor processor, DeviceService deviceService, DeviceAuthService authService, RelationService relationService,
                                 MqttTransportAdaptor adaptor, SslHandler sslHandler) {
         this.processor = processor;
         this.deviceService = deviceService;
+        this.relationService = relationService;
         this.authService = authService;
         this.adaptor = adaptor;
         this.deviceSessionCtx = new DeviceSessionCtx(processor, authService, adaptor);
@@ -91,30 +98,36 @@ public class MqttTransportHandler extends ChannelInboundHandlerAdapter implement
     }
 
     private void processMqttMsg(ChannelHandlerContext ctx, MqttMessage msg) {
-        deviceSessionCtx.setChannel(ctx);
-        switch (msg.fixedHeader().messageType()) {
-            case CONNECT:
-                processConnect(ctx, (MqttConnectMessage) msg);
-                break;
-            case PUBLISH:
-                processPublish(ctx, (MqttPublishMessage) msg);
-                break;
-            case SUBSCRIBE:
-                processSubscribe(ctx, (MqttSubscribeMessage) msg);
-                break;
-            case UNSUBSCRIBE:
-                processUnsubscribe(ctx, (MqttUnsubscribeMessage) msg);
-                break;
-            case PINGREQ:
-                if (checkConnected(ctx)) {
-                    ctx.writeAndFlush(new MqttMessage(new MqttFixedHeader(PINGRESP, false, AT_MOST_ONCE, false, 0)));
-                }
-                break;
-            case DISCONNECT:
-                if (checkConnected(ctx)) {
-                    processDisconnect(ctx);
-                }
-                break;
+        address = (InetSocketAddress) ctx.channel().remoteAddress();
+        if (msg.fixedHeader() == null) {
+            log.info("[{}:{}] Invalid message received", address.getHostName(), address.getPort());
+            processDisconnect(ctx);
+        } else {
+            deviceSessionCtx.setChannel(ctx);
+            switch (msg.fixedHeader().messageType()) {
+                case CONNECT:
+                    processConnect(ctx, (MqttConnectMessage) msg);
+                    break;
+                case PUBLISH:
+                    processPublish(ctx, (MqttPublishMessage) msg);
+                    break;
+                case SUBSCRIBE:
+                    processSubscribe(ctx, (MqttSubscribeMessage) msg);
+                    break;
+                case UNSUBSCRIBE:
+                    processUnsubscribe(ctx, (MqttUnsubscribeMessage) msg);
+                    break;
+                case PINGREQ:
+                    if (checkConnected(ctx)) {
+                        ctx.writeAndFlush(new MqttMessage(new MqttFixedHeader(PINGRESP, false, AT_MOST_ONCE, false, 0)));
+                    }
+                    break;
+                case DISCONNECT:
+                    if (checkConnected(ctx)) {
+                        processDisconnect(ctx);
+                    }
+                    break;
+            }
         }
     }
 
@@ -310,9 +323,11 @@ public class MqttTransportHandler extends ChannelInboundHandlerAdapter implement
 
     private void processDisconnect(ChannelHandlerContext ctx) {
         ctx.close();
-        processor.process(SessionCloseMsg.onDisconnect(deviceSessionCtx.getSessionId()));
-        if (gatewaySessionCtx != null) {
-            gatewaySessionCtx.onGatewayDisconnect();
+        if (connected) {
+            processor.process(SessionCloseMsg.onDisconnect(deviceSessionCtx.getSessionId()));
+            if (gatewaySessionCtx != null) {
+                gatewaySessionCtx.onGatewayDisconnect();
+            }
         }
     }
 
@@ -371,7 +386,7 @@ public class MqttTransportHandler extends ChannelInboundHandlerAdapter implement
         if (infoNode != null) {
             JsonNode gatewayNode = infoNode.get("gateway");
             if (gatewayNode != null && gatewayNode.asBoolean()) {
-                gatewaySessionCtx = new GatewaySessionCtx(processor, deviceService, authService, deviceSessionCtx);
+                gatewaySessionCtx = new GatewaySessionCtx(processor, deviceService, authService, relationService, deviceSessionCtx);
             }
         }
     }
